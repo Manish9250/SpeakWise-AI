@@ -1,55 +1,133 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
+from faster_whisper import WhisperModel
+from dotenv import load_dotenv
+import google.generativeai as genai
 import os
 import shutil
+import json
 
-# Create the FastAPI app instance
+# --- Load Environment Variables ---
+load_dotenv()
+
+# --- Model & API Configuration ---
+# Whisper Model
+model_size = "base.en"
+print("Loading Whisper model...")
+try:
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    print("Whisper model loaded successfully.")
+except Exception as e:
+    print(f"Error loading Whisper model: {e}")
+    model = None
+
+# Gemini API
+GEMINI_API_KEY = os.getenv("GENAI_API_KEY_1")
+if not GEMINI_API_KEY:
+    raise ValueError("GENAI_API_KEY not found in .env file")
+genai.configure(api_key=GEMINI_API_KEY)
+gemini_model = genai.GenerativeModel('gemini-1.5-flash')
+
+# --- FastAPI App Initialization ---
 app = FastAPI()
 
 # --- Directory Setup ---
-# Get the path to the frontend directory
 frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
-# Create a directory to store temporary audio files
 temp_audio_dir = os.path.join(os.path.dirname(__file__), "temp_audio")
 os.makedirs(temp_audio_dir, exist_ok=True)
 
 
-# --- API Endpoints ---
+# --- Helper Functions ---
+def calculate_transcript_with_pauses(segments):
+    final_transcript = ""
+    previous_word_end_time = 0.0
+    for segment in segments:
+        for word in segment.words:
+            start_time, end_time = word.start, word.end
+            if previous_word_end_time > 0:
+                pause_duration = start_time - previous_word_end_time
+                if pause_duration > 0.1:
+                    num_dots = int(pause_duration / 0.1)
+                    final_transcript += "." * num_dots
+            final_transcript += " " + word.word
+            previous_word_end_time = end_time
+    return final_transcript.strip()
 
+def get_ai_feedback(transcript: str):
+    """Sends the transcript to Gemini and gets structured feedback."""
+    prompt = f"""
+    You are an expert English language tutor. A student has spoken the following sentence, including their natural pauses represented by dots.
+    The user's speech: "{transcript}"
+
+    Your task is to provide feedback in three distinct parts. Please respond with ONLY a valid JSON object with the following three keys:
+    1. "conversationalReply": A natural, friendly, and conversational reply to what the user said. Do not mention that you are an AI.
+    2. "phraseSuggestion": A more natural or grammatically correct way the user could have phrased their sentence.
+    3. "detailedAnalysis": A brief, bulleted list explaining the specific grammatical errors or areas for improvement in the original sentence. If there are no errors, provide a compliment on their good phrasing.
+
+    Example JSON format:
+    {{
+      "conversationalReply": "Oh, you're a student at IIT Madras? That's really impressive! What are you studying there?",
+      "phraseSuggestion": "I'm a student at IIT Madras, pursuing a degree in Data Science.",
+      "detailedAnalysis": [
+        "Your sentence was grammatically correct!",
+        "Using 'pursuing a degree in' sounds slightly more formal and is common in academic or professional contexts."
+      ]
+    }}
+    """
+    try:
+        response = gemini_model.generate_content(prompt)
+        # Clean up the response to ensure it's valid JSON
+        cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
+        return json.loads(cleaned_response)
+    except Exception as e:
+        print(f"Error getting feedback from Gemini: {e}")
+        return None
+
+# --- API Endpoint ---
 @app.post("/api/transcribe")
 async def transcribe_audio(audio_file: UploadFile = File(...)):
-    """
-    Receives an audio file, saves it temporarily, and will eventually
-    send it for transcription.
-    """
-    # Define the path to save the uploaded file
+    if model is None:
+        return JSONResponse(status_code=500, content={"error": "Whisper model is not available."})
+
     file_path = os.path.join(temp_audio_dir, audio_file.filename)
-    
-    # Save the uploaded file to the temporary directory
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(audio_file.file, buffer)
-    
-    print(f"Successfully saved audio file to: {file_path}")
-    
-    # For now, we'll just return a success message.
-    # In the next step, we'll process this file.
-    return JSONResponse(
-        status_code=200,
-        content={"message": "Audio file received successfully.", "filename": audio_file.filename}
-    )
 
+    try:
+        segments, _ = model.transcribe(file_path, word_timestamps=True)
+        transcript_with_pauses = calculate_transcript_with_pauses(list(segments))
+        print(transcript_with_pauses)
+
+        if not transcript_with_pauses:
+            return JSONResponse(status_code=400, content={"error": "No speech detected."})
+
+        print("Getting AI feedback...")
+        ai_feedback = get_ai_feedback(transcript_with_pauses)
+        if not ai_feedback:
+            return JSONResponse(status_code=500, content={"error": "Failed to get AI feedback."})
+        print(ai_feedback)
+        return JSONResponse(
+            status_code=200,
+            content={
+                "transcript": transcript_with_pauses,
+                "feedback": ai_feedback
+            }
+        )
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        return JSONResponse(status_code=500, content={"error": "Failed to process audio."})
+    finally:
+        if os.path.exists(file_path):
+            os.remove(file_path)
 
 # --- Serve Frontend ---
 @app.get("/")
 def serve_index():
-    """Serves the main index.html file for the root path."""
     return FileResponse(os.path.join(frontend_dir, "index.html"))
 
 @app.get("/{full_path:path}")
 def serve_frontend(full_path: str):
-    """Serves other static files from the frontend directory."""
     file_path = os.path.join(frontend_dir, full_path)
     if os.path.exists(file_path):
         return FileResponse(file_path)
-    # Fallback to index.html for single-page application routing
     return FileResponse(os.path.join(frontend_dir, "index.html"))

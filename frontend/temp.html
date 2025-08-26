@@ -1,67 +1,154 @@
 <script>
+        // --- DOM Elements ---
+        const chatWindow = document.getElementById('chat-window');
+        const statusEl = document.getElementById('status');
+        const recordBtn = document.getElementById('record-btn');
 
-    
+        // --- MediaRecorder & SpeechSynthesis Setup ---
+        let mediaRecorder;
+        let audioChunks = [];
+        let isRecording = false;
+        const synth = window.speechSynthesis;
+
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            recordBtn.addEventListener('click', () => {
+                if (isRecording) {
+                    stopRecording();
+                } else {
+                    startRecording();
+                }
+            });
+        } else {
+            statusEl.textContent = "Sorry, your browser doesn't support audio recording.";
+            recordBtn.disabled = true;
+        }
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(stream => {
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+                    isRecording = true;
+                    
+                    statusEl.textContent = "Recording... Click to stop.";
+                    recordBtn.textContent = "Stop Recording";
+                    recordBtn.classList.add('bg-red-600', 'pulse-red');
+
+                    audioChunks = [];
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        uploadAudio(audioBlob);
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+                })
+                .catch(err => {
+                    console.error("Error accessing microphone:", err);
+                    statusEl.textContent = "Error: Could not access microphone.";
+                });
+        }
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            isRecording = false;
+            statusEl.textContent = "Processing audio...";
+            recordBtn.textContent = "Start Recording";
+            recordBtn.classList.remove('bg-red-600', 'pulse-red');
+            recordBtn.classList.add('bg-blue-600');
+            recordBtn.disabled = true;
+        }
         
-        // **NEW**: This function handles uploading the audio file.
         function uploadAudio(audioBlob) {
             const formData = new FormData();
-            // We give the file a name, including the timestamp to make it unique
             const fileName = `recording_${Date.now()}.webm`;
             formData.append("audio_file", audioBlob, fileName);
 
-            addUserMessage("You sent an audio recording.");
-            addThinkingIndicator();
+            addUserMessage("You sent an audio recording for analysis.");
+            addThinkingIndicator("Transcribing your speech...");
 
             fetch('/api/transcribe', {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error || 'Server error'); });
+                }
+                return response.json();
+            })
             .then(data => {
                 console.log("Success:", data);
-                // Here is where we will eventually receive and display the transcript
-                // For now, let's just log the success message
                 
-                // Remove the "Thinking..." indicator
                 const thinkingIndicator = document.getElementById('thinking-indicator');
                 if (thinkingIndicator) thinkingIndicator.remove();
+                
+                const userMessages = document.querySelectorAll('.user-message');
+                const lastUserMessage = userMessages[userMessages.length - 1];
+                if(lastUserMessage) {
+                    lastUserMessage.querySelector('p').textContent = data.transcript;
+                }
 
-                // Re-enable the button for the next recording
-                recordBtn.disabled = false;
-                statusEl.textContent = "Press the button to start recording.";
+                // **NEW**: Display the full AI response
+                addAiResponse(data.feedback);
             })
             .catch(error => {
                 console.error('Error:', error);
-                statusEl.textContent = "Error uploading file. Please try again.";
+                statusEl.textContent = `Error: ${error.message}`;
+                const thinkingIndicator = document.getElementById('thinking-indicator');
+                if (thinkingIndicator) thinkingIndicator.remove();
+            })
+            .finally(() => {
                 recordBtn.disabled = false;
+                statusEl.textContent = "Press the button to start recording.";
             });
         }
 
         // --- UI Functions ---
         function addUserMessage(text) {
-            const messageHtml = `
-                <div class="user-message flex justify-end gap-3">
-                    <div class="text-slate-800 bg-blue-50 rounded-lg p-4 max-w-xl">
-                        <p>${text}</p>
-                    </div>
-                    <div class="bg-blue-600 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">YOU</div>
-                </div>
-            `;
+            const messageHtml = `<div class="user-message flex justify-end gap-3">...</div>`;
             chatWindow.insertAdjacentHTML('beforeend', messageHtml);
             scrollToBottom();
         }
 
-        function addThinkingIndicator() {
-            const thinkingHtml = `
-                <div id="thinking-indicator" class="ai-message flex gap-3">
+        function addThinkingIndicator(text = "Processing audio...") {
+            const thinkingHtml = `<div id="thinking-indicator" class="ai-message flex gap-3">...</div>`;
+            chatWindow.insertAdjacentHTML('beforeend', thinkingHtml);
+            scrollToBottom();
+        }
+
+        // **NEW**: This function displays the AI's structured feedback and speaks the reply.
+        function addAiResponse(feedback) {
+            // Build the analysis list items
+            const analysisItems = feedback.detailedAnalysis.map(item => `<li>${item}</li>`).join('');
+
+            const aiMessageHtml = `
+                <div class="ai-message flex gap-3">
                     <div class="bg-slate-700 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">AI</div>
-                    <div class="text-slate-800 bg-slate-50 rounded-lg p-4 max-w-xl">
-                        <p class="italic">Processing audio...</p>
+                    <div class="text-slate-800 bg-slate-50 rounded-lg p-4 max-w-xl space-y-4">
+                        <!-- Conversational Reply -->
+                        <p>${feedback.conversationalReply}</p>
+                        
+                        <!-- Suggestion and Analysis -->
+                        <div class="border-t border-slate-200 pt-4">
+                            <h3 class="font-bold text-sm text-slate-600 mb-2">Suggestion:</h3>
+                            <p class="italic text-slate-800">“${feedback.phraseSuggestion}”</p>
+                        </div>
+                        <div class="border-t border-slate-200 pt-4">
+                            <h3 class="font-bold text-sm text-slate-600 mb-2">Analysis:</h3>
+                            <ul class="list-disc list-inside text-sm text-slate-700 space-y-1">${analysisItems}</ul>
+                        </div>
                     </div>
                 </div>
             `;
-            chatWindow.insertAdjacentHTML('beforeend', thinkingHtml);
+            chatWindow.insertAdjacentHTML('beforeend', aiMessageHtml);
             scrollToBottom();
+
+            // Speak the conversational reply
+            const utterance = new SpeechSynthesisUtterance(feedback.conversationalReply);
+            synth.speak(utterance);
         }
 
         function scrollToBottom() {

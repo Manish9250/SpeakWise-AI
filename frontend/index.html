@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="dark"> <!-- Set dark theme as permanent -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,8 +11,8 @@
             font-family: 'Inter', sans-serif;
         }
         #chat-window::-webkit-scrollbar { width: 8px; }
-        #chat-window::-webkit-scrollbar-track { background: #f1f5f9; }
-        #chat-window::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+        #chat-window::-webkit-scrollbar-track { background: #1e293b; } /* Dark scrollbar track */
+        #chat-window::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
         #chat-window::-webkit-scrollbar-thumb:hover { background: #64748b; }
         .pulse-red {
             animation: pulse-red-animation 1.5s infinite;
@@ -24,24 +24,25 @@
         }
     </style>
 </head>
-<body class="bg-slate-100 flex flex-col h-screen">
+<body class="bg-slate-900 flex flex-col h-screen transition-colors duration-300">
 
-    <header class="bg-white shadow-md w-full p-4">
-        <h1 class="text-2xl font-bold text-slate-800 text-center">SpeakWise AI 🗣️✨</h1>
+    <header class="bg-slate-800 shadow-md w-full p-4 flex justify-center items-center border-b border-slate-700">
+        <h1 class="text-2xl font-bold text-slate-200 text-center">SpeakWise AI 🗣️✨</h1>
     </header>
 
     <main class="flex-1 flex flex-col p-4 md:p-8 overflow-hidden">
-        <div id="chat-window" class="flex-1 bg-white rounded-xl shadow-inner p-6 overflow-y-auto space-y-6">
-            <div class="ai-message flex gap-3">
-                <div class="bg-slate-700 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">AI</div>
-                <div class="text-slate-800 bg-slate-50 rounded-lg p-4 max-w-xl">
+        <div id="chat-window" class="flex-1 p-6 space-y-6 overflow-y-auto">
+            <!-- Initial AI Welcome Message -->
+            <div class="flex justify-start">
+                <div class="text-slate-200 bg-slate-700 rounded-2xl p-4 max-w-xl">
                     <p>Hello! Press the "Start Recording" button and say something to begin.</p>
                 </div>
             </div>
+             <!-- Messages will be added here -->
         </div>
 
         <div id="controls" class="flex-shrink-0 pt-6 text-center">
-            <p id="status" class="text-slate-500 mb-4 h-6">Press the button to start recording.</p>
+            <p id="status" class="text-slate-400 mb-4 h-6">Press the button to start recording.</p>
             <button id="record-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-full shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
                 Start Recording
             </button>
@@ -54,15 +55,13 @@
         const statusEl = document.getElementById('status');
         const recordBtn = document.getElementById('record-btn');
 
-        // --- MediaRecorder Setup ---
+        // --- MediaRecorder & SpeechSynthesis Setup ---
         let mediaRecorder;
         let audioChunks = [];
         let isRecording = false;
+        const synth = window.speechSynthesis;
 
-        // Check if the browser supports the necessary APIs
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            console.log("getUserMedia supported.");
-
             recordBtn.addEventListener('click', () => {
                 if (isRecording) {
                     stopRecording();
@@ -70,7 +69,6 @@
                     startRecording();
                 }
             });
-
         } else {
             statusEl.textContent = "Sorry, your browser doesn't support audio recording.";
             recordBtn.disabled = true;
@@ -83,34 +81,23 @@
                     mediaRecorder.start();
                     isRecording = true;
                     
-                    // Update UI
                     statusEl.textContent = "Recording... Click to stop.";
                     recordBtn.textContent = "Stop Recording";
                     recordBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
                     recordBtn.classList.add('bg-red-600', 'hover:bg-red-700', 'pulse-red');
 
-                    // Clear previous recording chunks
                     audioChunks = [];
-
-                    // Collect audio data
                     mediaRecorder.ondataavailable = event => {
                         audioChunks.push(event.data);
                     };
 
-                    // Handle the stop event
                     mediaRecorder.onstop = () => {
                         const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        
-                        // For now, let's just create a playable link to test it
                         const audioUrl = URL.createObjectURL(audioBlob);
-                        //addUserMessage("Recording finished. Ready to process.");
-                        addAudioPlayer(audioUrl); // Let's add a player to hear our recording
-                        //addThinkingIndicator();
-
-                        // In the next step, we will upload the audioBlob instead
+                        
+                        addAudioPlayer(audioUrl);
                         uploadAudio(audioBlob); 
 
-                        // Stop the microphone track
                         stream.getTracks().forEach(track => track.stop());
                     };
                 })
@@ -123,90 +110,108 @@
         function stopRecording() {
             mediaRecorder.stop();
             isRecording = false;
-
-            // Update UI
             statusEl.textContent = "Processing...";
             recordBtn.textContent = "Start Recording";
             recordBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'pulse-red');
             recordBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
-            recordBtn.disabled = true; // Disable button while processing
+            recordBtn.disabled = true;
         }
         
+        function uploadAudio(audioBlob) {
+            const formData = new FormData();
+            const fileName = `recording_${Date.now()}.webm`;
+            formData.append("audio_file", audioBlob, fileName);
+
+            addThinkingIndicator("Transcribing and analyzing your speech...");
+
+            fetch('/api/transcribe', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(err => { throw new Error(err.error || 'Server error'); });
+                }
+                return response.json();
+            })
+            .then(data => {
+                const thinkingIndicator = document.getElementById('thinking-indicator');
+                if (thinkingIndicator) thinkingIndicator.remove();
+                
+                addUserMessage(data.transcript);
+                addAiResponse(data.feedback);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                statusEl.textContent = `Error: ${error.message}`;
+                const thinkingIndicator = document.getElementById('thinking-indicator');
+                if (thinkingIndicator) thinkingIndicator.remove();
+            })
+            .finally(() => {
+                recordBtn.disabled = false;
+                statusEl.textContent = "Press the button to start recording.";
+            });
+        }
+
         // --- UI Functions ---
         function addUserMessage(text) {
             const messageHtml = `
-                <div class="user-message flex justify-end gap-3">
-                    <div class="text-slate-800 bg-blue-50 rounded-lg p-4 max-w-xl">
+                <div class="flex justify-end">
+                    <div class="bg-slate-600 text-white rounded-2xl p-4 max-w-xl">
                         <p>${text}</p>
                     </div>
-                    <div class="bg-blue-600 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">YOU</div>
                 </div>
             `;
             chatWindow.insertAdjacentHTML('beforeend', messageHtml);
             scrollToBottom();
         }
 
-        // A temporary function to let us hear our recording
         function addAudioPlayer(audioUrl) {
             const audioHtml = `
-                <div class="user-message flex justify-end gap-3">
-                    <div class="text-slate-800 bg-blue-50 rounded-lg p-4 max-w-xl">
+                <div class="flex justify-end">
+                    <div class="bg-slate-600 rounded-2xl p-4 max-w-xl">
                         <audio controls src="${audioUrl}"></audio>
                     </div>
-                    <div class="bg-blue-600 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">YOU</div>
                 </div>
             `;
             chatWindow.insertAdjacentHTML('beforeend', audioHtml);
             scrollToBottom();
-             recordBtn.disabled = false; // Re-enable button after processing
-        }
-        // **NEW**: This function handles uploading the audio file.
-        function uploadAudio(audioBlob) {
-            const formData = new FormData();
-            // We give the file a name, including the timestamp to make it unique
-            const fileName = `recording_${Date.now()}.webm`;
-            formData.append("audio_file", audioBlob, fileName);
-
-            //addUserMessage("You sent an audio recording.");
-            addThinkingIndicator();
-
-            fetch('/api/transcribe', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                console.log("Success:", data);
-                // Here is where we will eventually receive and display the transcript
-                // For now, let's just log the success message
-                
-                // Remove the "Thinking..." indicator
-                const thinkingIndicator = document.getElementById('thinking-indicator');
-                if (thinkingIndicator) thinkingIndicator.remove();
-
-                // Re-enable the button for the next recording
-                recordBtn.disabled = false;
-                statusEl.textContent = "Press the button to start recording.";
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                statusEl.textContent = "Error uploading file. Please try again.";
-                recordBtn.disabled = false;
-            });
         }
 
-
-        function addThinkingIndicator() {
+        function addThinkingIndicator(text = "Processing audio...") {
             const thinkingHtml = `
-                <div id="thinking-indicator" class="ai-message flex gap-3">
-                    <div class="bg-slate-700 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">AI</div>
-                    <div class="text-slate-800 bg-slate-50 rounded-lg p-4 max-w-xl">
-                        <p class="italic">Processing audio...</p>
+                <div id="thinking-indicator" class="flex justify-start">
+                    <div class="text-slate-200 bg-slate-700 rounded-2xl p-4 max-w-xl">
+                        <p class="italic">${text}</p>
                     </div>
                 </div>
             `;
             chatWindow.insertAdjacentHTML('beforeend', thinkingHtml);
             scrollToBottom();
+        }
+
+        function addAiResponse(feedback) {
+            const analysisItems = feedback.detailedAnalysis.map(item => `<li>${item}</li>`).join('');
+            const aiMessageHtml = `
+                <div class="flex justify-start">
+                    <div class="text-slate-200 bg-slate-700 rounded-2xl p-4 max-w-xl space-y-4">
+                        <p>${feedback.conversationalReply}</p>
+                        <div class="border-t border-slate-600 pt-4">
+                            <h3 class="font-bold text-sm text-slate-400 mb-2">Suggestion:</h3>
+                            <p class="italic">“${feedback.phraseSuggestion}”</p>
+                        </div>
+                        <div class="border-t border-slate-600 pt-4">
+                            <h3 class="font-bold text-sm text-slate-400 mb-2">Analysis:</h3>
+                            <ul class="list-disc list-inside text-sm text-slate-300 space-y-1">${analysisItems}</ul>
+                        </div>
+                    </div>
+                </div>
+            `;
+            chatWindow.insertAdjacentHTML('beforeend', aiMessageHtml);
+            scrollToBottom();
+
+            const utterance = new SpeechSynthesisUtterance(feedback.conversationalReply);
+            synth.speak(utterance);
         }
 
         function scrollToBottom() {
