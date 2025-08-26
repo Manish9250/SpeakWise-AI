@@ -4,9 +4,170 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SpeakWise AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple scrollbar styling */
+        #chat-window::-webkit-scrollbar {
+            width: 8px;
+        }
+        #chat-window::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        #chat-window::-webkit-scrollbar-thumb {
+            background: #94a3b8;
+            border-radius: 4px;
+        }
+        #chat-window::-webkit-scrollbar-thumb:hover {
+            background: #64748b;
+        }
+        .pulse-red {
+            animation: pulse-red-animation 1.5s infinite;
+        }
+        @keyframes pulse-red-animation {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 10px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
 </head>
-<body>
-    <h1>Welcome to SpeakWise AI!</h1>
-    <p>The backend is successfully serving the frontend.</p>
+<body class="bg-slate-100 flex flex-col h-screen">
+
+    <header class="bg-white shadow-md w-full p-4">
+        <h1 class="text-2xl font-bold text-slate-800 text-center">SpeakWise AI 🗣️✨</h1>
+    </header>
+
+    <main class="flex-1 flex flex-col p-4 md:p-8 overflow-hidden">
+        <!-- Chat Window -->
+        <div id="chat-window" class="flex-1 bg-white rounded-xl shadow-inner p-6 overflow-y-auto space-y-6">
+            <!-- AI Welcome Message -->
+            <div class="ai-message flex gap-3">
+                <div class="bg-slate-700 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">AI</div>
+                <div class="text-slate-800 bg-slate-50 rounded-lg p-4 max-w-xl">
+                    <p>Hello! I'm here to help you practice your English. Press the "Start Listening" button and say something to begin.</p>
+                </div>
+            </div>
+            <!-- Messages will be added here -->
+        </div>
+
+        <!-- Controls and Status -->
+        <div id="controls" class="flex-shrink-0 pt-6 text-center">
+            <p id="status" class="text-slate-500 mb-4 h-6">Press the button to start speaking.</p>
+            <button id="toggle-listening-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 px-8 rounded-full shadow-lg transition-all duration-300 ease-in-out transform hover:scale-105">
+                Start Listening
+            </button>
+        </div>
+    </main>
+
+    <script>
+        // --- DOM Elements ---
+        const chatWindow = document.getElementById('chat-window');
+        const statusEl = document.getElementById('status');
+        const toggleBtn = document.getElementById('toggle-listening-btn');
+
+        // --- Speech Recognition Setup ---
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        let recognition;
+        let isListening = false;
+
+        if (SpeechRecognition) {
+            recognition = new SpeechRecognition();
+            recognition.continuous = true; // Keep listening even after a pause
+            recognition.interimResults = true; // Show results as they are being recognized
+            recognition.lang = 'en-US';
+
+            // --- Event Handlers ---
+            recognition.onstart = () => {
+                statusEl.textContent = "Listening... Speak now.";
+                toggleBtn.textContent = "Stop Listening";
+                toggleBtn.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+                toggleBtn.classList.add('bg-red-600', 'hover:bg-red-700', 'pulse-red');
+                isListening = true;
+            };
+
+            recognition.onend = () => {
+                statusEl.textContent = "Press the button to start speaking.";
+                toggleBtn.textContent = "Start Listening";
+                toggleBtn.classList.remove('bg-red-600', 'hover:bg-red-700', 'pulse-red');
+                toggleBtn.classList.add('bg-blue-600', 'hover:bg-blue-700');
+                isListening = false;
+            };
+
+            recognition.onresult = (event) => {
+                let finalTranscript = '';
+                let interimTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+                
+                // For now, we only care about the final transcript for a single utterance
+                if (finalTranscript) {
+                    recognition.stop(); // Stop listening after a sentence
+                    addUserMessage(finalTranscript.trim());
+                    // In the next step, we'll send this to the backend
+                    // For now, let's simulate a pending AI response
+                    addThinkingIndicator();
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech recognition error:", event.error);
+                statusEl.textContent = `Error: ${event.error}. Please try again.`;
+            };
+
+        } else {
+            statusEl.textContent = "Sorry, your browser doesn't support Speech Recognition.";
+            toggleBtn.disabled = true;
+        }
+
+        // --- UI Functions ---
+        function addUserMessage(text) {
+            const messageHtml = `
+                <div class="user-message flex justify-end gap-3">
+                    <div class="text-slate-800 bg-blue-50 rounded-lg p-4 max-w-xl">
+                        <p>${text}</p>
+                    </div>
+                    <div class="bg-blue-600 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">YOU</div>
+                </div>
+            `;
+            chatWindow.insertAdjacentHTML('beforeend', messageHtml);
+            scrollToBottom();
+        }
+
+        function addThinkingIndicator() {
+            const thinkingHtml = `
+                <div id="thinking-indicator" class="ai-message flex gap-3">
+                    <div class="bg-slate-700 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">AI</div>
+                    <div class="text-slate-800 bg-slate-50 rounded-lg p-4 max-w-xl">
+                        <p class="italic">Thinking...</p>
+                    </div>
+                </div>
+            `;
+            chatWindow.insertAdjacentHTML('beforeend', thinkingHtml);
+            scrollToBottom();
+        }
+
+        function scrollToBottom() {
+            chatWindow.scrollTop = chatWindow.scrollHeight;
+        }
+
+        // --- Event Listeners ---
+        toggleBtn.addEventListener('click', () => {
+            if (isListening) {
+                recognition.stop();
+            } else {
+                recognition.start();
+            }
+        });
+
+    </script>
 </body>
 </html>
