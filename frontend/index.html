@@ -103,12 +103,12 @@
                         
                         // For now, let's just create a playable link to test it
                         const audioUrl = URL.createObjectURL(audioBlob);
-                        addUserMessage("Recording finished. Ready to process.");
+                        //addUserMessage("Recording finished. Ready to process.");
                         addAudioPlayer(audioUrl); // Let's add a player to hear our recording
-                        addThinkingIndicator();
+                        //addThinkingIndicator();
 
                         // In the next step, we will upload the audioBlob instead
-                        // uploadAudio(audioBlob); 
+                        uploadAudio(audioBlob); 
 
                         // Stop the microphone track
                         stream.getTracks().forEach(track => track.stop());
@@ -146,7 +146,7 @@
             scrollToBottom();
         }
 
-        // **NEW**: A temporary function to let us hear our recording
+        // A temporary function to let us hear our recording
         function addAudioPlayer(audioUrl) {
             const audioHtml = `
                 <div class="user-message flex justify-end gap-3">
@@ -160,13 +160,48 @@
             scrollToBottom();
              recordBtn.disabled = false; // Re-enable button after processing
         }
+        // **NEW**: This function handles uploading the audio file.
+        function uploadAudio(audioBlob) {
+            const formData = new FormData();
+            // We give the file a name, including the timestamp to make it unique
+            const fileName = `recording_${Date.now()}.webm`;
+            formData.append("audio_file", audioBlob, fileName);
+
+            //addUserMessage("You sent an audio recording.");
+            addThinkingIndicator();
+
+            fetch('/api/transcribe', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                console.log("Success:", data);
+                // Here is where we will eventually receive and display the transcript
+                // For now, let's just log the success message
+                
+                // Remove the "Thinking..." indicator
+                const thinkingIndicator = document.getElementById('thinking-indicator');
+                if (thinkingIndicator) thinkingIndicator.remove();
+
+                // Re-enable the button for the next recording
+                recordBtn.disabled = false;
+                statusEl.textContent = "Press the button to start recording.";
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                statusEl.textContent = "Error uploading file. Please try again.";
+                recordBtn.disabled = false;
+            });
+        }
+
 
         function addThinkingIndicator() {
             const thinkingHtml = `
                 <div id="thinking-indicator" class="ai-message flex gap-3">
                     <div class="bg-slate-700 text-white rounded-full w-10 h-10 flex-shrink-0 flex items-center justify-center font-bold">AI</div>
                     <div class="text-slate-800 bg-slate-50 rounded-lg p-4 max-w-xl">
-                        <p class="italic">Thinking...</p>
+                        <p class="italic">Processing audio...</p>
                     </div>
                 </div>
             `;
