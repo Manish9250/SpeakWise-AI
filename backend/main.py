@@ -2,14 +2,12 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from faster_whisper import WhisperModel
 from dotenv import load_dotenv
-from speechbrain.pretrained import Tacotron2, HIFIGAN
+from TTS.api import TTS
 import google.generativeai as genai
 import os
 import shutil
 import json
 import base64
-import torch
-import torchaudio
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -25,22 +23,22 @@ except Exception as e:
     print(f"Error loading Whisper model: {e}")
     whisper_model = None
 
-# SpeechBrain TTS Model (Text-to-Speech)
-print("Loading SpeechBrain TTS model...")
-tacotron2 = None
-hifi_gan = None
+# Coqui TTS Model (Text-to-Speech)
+print("Loading Coqui TTS model (glow-tts)...")
+tts = None
 try:
-    # This will download the models on the first run
-    tacotron2 = Tacotron2.from_hparams(source="speechbrain/tts-tacotron2-ljspeech", savedir="tmpdir_tts")
-    hifi_gan = HIFIGAN.from_hparams(source="speechbrain/tts-hifigan-ljspeech", savedir="tmpdir_vocoder")
-    print("SpeechBrain TTS model loaded successfully.")
+    # This will download the model on the first run
+    tts = TTS(model_name="tts_models/en/ljspeech/glow-tts", progress_bar=True, gpu=False)
+    print("Coqui TTS model loaded successfully.")
 except Exception as e:
-    print(f"Error loading SpeechBrain TTS model: {e}")
-    tacotron2 = None
-    hifi_gan = None
+    print(f"Error loading Coqui TTS model: {e}")
+    tts = None
 
 # Gemini API
-GEMINI_API_KEY = os.getenv("GENAI_API_KEY_1")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+if not GEMINI_API_KEY:
+    # Fallback for your specific key name
+    GEMINI_API_KEY = os.getenv("GENAI_API_KEY_1") 
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY not found in .env file")
 genai.configure(api_key=GEMINI_API_KEY)
@@ -73,7 +71,7 @@ def calculate_transcript_with_pauses(segments):
 
 def get_ai_feedback(transcript: str):
     prompt = f"""
-    You are an expert English language tutor. A student has spoken the following sentence, including their natural pauses represented by dots.
+    You are an expert English language tutor. A student has spoken the following sentence, including their natural pauses represented by dots(one dot is equal to 0.1 seconds).
     The user's speech: "{transcript}"
 
     Your task is to provide feedback in three distinct parts. Please respond with ONLY a valid JSON object with the following three keys:
@@ -102,7 +100,7 @@ def get_ai_feedback(transcript: str):
 # --- API Endpoint ---
 @app.post("/api/transcribe")
 async def transcribe_audio(audio_file: UploadFile = File(...)):
-    if whisper_model is None or tacotron2 is None or hifi_gan is None:
+    if whisper_model is None or tts is None:
         return JSONResponse(status_code=500, content={"error": "A required AI model is not available."})
 
     temp_input_path = os.path.join(temp_audio_dir, audio_file.filename)
@@ -120,17 +118,11 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
         if not ai_feedback:
             return JSONResponse(status_code=500, content={"error": "Failed to get AI feedback."})
 
-        print("Generating AI speech with SpeechBrain...")
+        print("Generating AI speech with Coqui TTS...")
         temp_output_path = os.path.join(temp_audio_dir, "ai_response.wav")
         
-        # Generate spectrograms
-        mel_output, mel_length, alignment = tacotron2.encode_text(ai_feedback["conversationalReply"])
-        
-        # Generate waveform
-        waveforms = hifi_gan.decode_batch(mel_output)
-        
-        # Save the audio file
-        torchaudio.save(temp_output_path, waveforms.squeeze(1), 22050)
+        # Synthesize speech using the specified glow-tts model
+        tts.tts_to_file(text=ai_feedback["conversationalReply"], file_path=temp_output_path)
         
         with open(temp_output_path, "rb") as f:
             audio_data = f.read()
@@ -149,9 +141,11 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
         return JSONResponse(status_code=500, content={"error": "Failed to process audio."})
     finally:
         if os.path.exists(temp_input_path):
-            os.remove(temp_input_path)
+            #os.remove(temp_input_path)
+            pass
         if 'temp_output_path' in locals() and os.path.exists(temp_output_path):
-            os.remove(temp_output_path)
+            #os.remove(temp_output_path)
+            pass
 
 # --- Serve Frontend (No changes here) ---
 @app.get("/")
