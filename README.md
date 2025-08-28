@@ -84,8 +84,9 @@ To run this project on your local machine, follow these steps:
 
 1. **Clone the Repository**
 
-```bash
+
 git clone [https://github.com/Manish9250/SpeakWise-AI.git](https://github.com/Manish9250/SpeakWise-AI.git)
+```bash
 cd SpeakWise-AI
 ```
 
