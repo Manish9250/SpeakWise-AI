@@ -2,29 +2,47 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse, JSONResponse
 from faster_whisper import WhisperModel
 from dotenv import load_dotenv
+from speechbrain.pretrained import Tacotron2, HIFIGAN
 import google.generativeai as genai
 import os
 import shutil
 import json
+import base64
+import torch
+import torchaudio
 
 # --- Load Environment Variables ---
 load_dotenv()
 
 # --- Model & API Configuration ---
-# Whisper Model
-model_size = "base.en"
+# Whisper Model (Speech-to-Text)
+whisper_model_size = "base.en"
 print("Loading Whisper model...")
 try:
-    model = WhisperModel(model_size, device="cpu", compute_type="int8")
+    whisper_model = WhisperModel(whisper_model_size, device="cpu", compute_type="int8")
     print("Whisper model loaded successfully.")
 except Exception as e:
     print(f"Error loading Whisper model: {e}")
-    model = None
+    whisper_model = None
+
+# SpeechBrain TTS Model (Text-to-Speech)
+print("Loading SpeechBrain TTS model...")
+tacotron2 = None
+hifi_gan = None
+try:
+    # This will download the models on the first run
+    tacotron2 = Tacotron2.from_hparams(source="speechbrain/tts-tacotron2-ljspeech", savedir="tmpdir_tts")
+    hifi_gan = HIFIGAN.from_hparams(source="speechbrain/tts-hifigan-ljspeech", savedir="tmpdir_vocoder")
+    print("SpeechBrain TTS model loaded successfully.")
+except Exception as e:
+    print(f"Error loading SpeechBrain TTS model: {e}")
+    tacotron2 = None
+    hifi_gan = None
 
 # Gemini API
 GEMINI_API_KEY = os.getenv("GENAI_API_KEY_1")
 if not GEMINI_API_KEY:
-    raise ValueError("GENAI_API_KEY not found in .env file")
+    raise ValueError("GEMINI_API_KEY not found in .env file")
 genai.configure(api_key=GEMINI_API_KEY)
 gemini_model = genai.GenerativeModel('gemini-1.5-flash')
 
@@ -37,7 +55,7 @@ temp_audio_dir = os.path.join(os.path.dirname(__file__), "temp_audio")
 os.makedirs(temp_audio_dir, exist_ok=True)
 
 
-# --- Helper Functions ---
+# --- Helper Functions (No changes here) ---
 def calculate_transcript_with_pauses(segments):
     final_transcript = ""
     previous_word_end_time = 0.0
@@ -54,7 +72,6 @@ def calculate_transcript_with_pauses(segments):
     return final_transcript.strip()
 
 def get_ai_feedback(transcript: str):
-    """Sends the transcript to Gemini and gets structured feedback."""
     prompt = f"""
     You are an expert English language tutor. A student has spoken the following sentence, including their natural pauses represented by dots.
     The user's speech: "{transcript}"
@@ -76,7 +93,6 @@ def get_ai_feedback(transcript: str):
     """
     try:
         response = gemini_model.generate_content(prompt)
-        # Clean up the response to ensure it's valid JSON
         cleaned_response = response.text.strip().replace("```json", "").replace("```", "")
         return json.loads(cleaned_response)
     except Exception as e:
@@ -86,41 +102,58 @@ def get_ai_feedback(transcript: str):
 # --- API Endpoint ---
 @app.post("/api/transcribe")
 async def transcribe_audio(audio_file: UploadFile = File(...)):
-    if model is None:
-        return JSONResponse(status_code=500, content={"error": "Whisper model is not available."})
+    if whisper_model is None or tacotron2 is None or hifi_gan is None:
+        return JSONResponse(status_code=500, content={"error": "A required AI model is not available."})
 
-    file_path = os.path.join(temp_audio_dir, audio_file.filename)
-    with open(file_path, "wb") as buffer:
+    temp_input_path = os.path.join(temp_audio_dir, audio_file.filename)
+    with open(temp_input_path, "wb") as buffer:
         shutil.copyfileobj(audio_file.file, buffer)
 
     try:
-        segments, _ = model.transcribe(file_path, word_timestamps=True)
+        segments, _ = whisper_model.transcribe(temp_input_path, word_timestamps=True)
         transcript_with_pauses = calculate_transcript_with_pauses(list(segments))
-        print(transcript_with_pauses)
 
         if not transcript_with_pauses:
             return JSONResponse(status_code=400, content={"error": "No speech detected."})
 
-        print("Getting AI feedback...")
         ai_feedback = get_ai_feedback(transcript_with_pauses)
         if not ai_feedback:
             return JSONResponse(status_code=500, content={"error": "Failed to get AI feedback."})
-        print(ai_feedback)
+
+        print("Generating AI speech with SpeechBrain...")
+        temp_output_path = os.path.join(temp_audio_dir, "ai_response.wav")
+        
+        # Generate spectrograms
+        mel_output, mel_length, alignment = tacotron2.encode_text(ai_feedback["conversationalReply"])
+        
+        # Generate waveform
+        waveforms = hifi_gan.decode_batch(mel_output)
+        
+        # Save the audio file
+        torchaudio.save(temp_output_path, waveforms.squeeze(1), 22050)
+        
+        with open(temp_output_path, "rb") as f:
+            audio_data = f.read()
+            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
+
         return JSONResponse(
             status_code=200,
             content={
                 "transcript": transcript_with_pauses,
-                "feedback": ai_feedback
+                "feedback": ai_feedback,
+                "audio": audio_base64
             }
         )
     except Exception as e:
         print(f"An error occurred: {e}")
         return JSONResponse(status_code=500, content={"error": "Failed to process audio."})
     finally:
-        if os.path.exists(file_path):
-            os.remove(file_path)
+        if os.path.exists(temp_input_path):
+            os.remove(temp_input_path)
+        if 'temp_output_path' in locals() and os.path.exists(temp_output_path):
+            os.remove(temp_output_path)
 
-# --- Serve Frontend ---
+# --- Serve Frontend (No changes here) ---
 @app.get("/")
 def serve_index():
     return FileResponse(os.path.join(frontend_dir, "index.html"))
