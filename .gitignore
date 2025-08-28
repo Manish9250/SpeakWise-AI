@@ -1,3 +1,7 @@
+# TTS model
+backend/temp_audio/
+backend/tts/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

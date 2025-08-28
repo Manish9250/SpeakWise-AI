@@ -8,6 +8,7 @@ import os
 import shutil
 import json
 import uuid # Used for generating unique filenames
+import torch
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -24,11 +25,22 @@ except Exception as e:
     whisper_model = None
 
 # Coqui TTS Model (Text-to-Speech)
-print("Loading Coqui TTS model (glow-tts)...")
+print("Loading Coqui XTTSv2 model...")
 tts = None
 try:
-    tts = TTS(model_name="tts_models/en/ljspeech/glow-tts", progress_bar=True, gpu=False)
-    print("Coqui TTS model loaded successfully.")
+    # **CHANGE 1: Check if a GPU is available**
+    use_gpu = torch.cuda.is_available()
+    if use_gpu:
+        print("GPU detected! Loading TTS model on GPU.")
+    else:
+        print("No GPU detected. Loading TTS model on CPU (will be slower).")
+
+    # **CHANGE 2: Use the high-quality XTTS v2 model**
+    tts_model_name = "tts_models/multilingual/multi-dataset/xtts_v2"
+    
+    # **CHANGE 3: Enable GPU usage in the TTS library**
+    tts = TTS(model_name=tts_model_name, progress_bar=True, gpu=use_gpu)
+    print("Coqui XTTSv2 model loaded successfully.")
 except Exception as e:
     print(f"Error loading Coqui TTS model: {e}")
     tts = None
@@ -122,7 +134,12 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
         temp_output_filename = f"ai_response_{unique_id}.wav"
         temp_output_path = os.path.join(temp_audio_dir, temp_output_filename)
         
-        tts.tts_to_file(text=ai_feedback["conversationalReply"], file_path=temp_output_path)
+        tts.tts_to_file(
+            text=ai_feedback["conversationalReply"], 
+            file_path=temp_output_path,
+            speaker=tts.speakers[0], # Use the first default speaker
+            language=tts.languages[0] # Use the first default language
+        )
         
         return JSONResponse(
             status_code=200,
