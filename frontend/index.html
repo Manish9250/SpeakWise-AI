@@ -138,8 +138,7 @@
                 if (thinkingIndicator) thinkingIndicator.remove();
                 
                 addUserMessage(data.transcript);
-                // **UPDATED**: Pass the audio data from the response
-                addAiResponse(data.feedback, data.audio);
+                addAiResponse(data.feedback, data.audio_filename);
             })
             .catch(error => {
                 console.error('Error:', error);
@@ -190,8 +189,7 @@
             scrollToBottom();
         }
 
-        // **UPDATED**: This function now receives the Base64 audio string
-        function addAiResponse(feedback, audioBase64) {
+        function addAiResponse(feedback, audioFilename) {
             const analysisItems = feedback.detailedAnalysis.map(item => `<li>${item}</li>`).join('');
             const aiMessageHtml = `
                 <div class="flex justify-start">
@@ -211,21 +209,8 @@
             chatWindow.insertAdjacentHTML('beforeend', aiMessageHtml);
             scrollToBottom();
 
-            // **NEW**: Play the high-quality audio from the backend
-            playAudioFromBase64(audioBase64);
-        }
-        
-        // **NEW**: This function decodes the Base64 string and plays the audio
-        function playAudioFromBase64(base64String) {
-            const byteCharacters = atob(base64String);
-            const byteNumbers = new Array(byteCharacters.length);
-            for (let i = 0; i < byteCharacters.length; i++) {
-                byteNumbers[i] = byteCharacters.charCodeAt(i);
-            }
-            const byteArray = new Uint8Array(byteNumbers);
-            const audioBlob = new Blob([byteArray], { type: 'audio/wav' });
-            const audioUrl = URL.createObjectURL(audioBlob);
-            
+            // Play the high-quality audio from the server URL
+            const audioUrl = `/api/audio/${audioFilename}`;
             const audio = new Audio(audioUrl);
             audio.play();
         }

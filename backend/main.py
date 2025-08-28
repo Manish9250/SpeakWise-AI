@@ -7,7 +7,7 @@ import google.generativeai as genai
 import os
 import shutil
 import json
-import base64
+import uuid # Used for generating unique filenames
 
 # --- Load Environment Variables ---
 load_dotenv()
@@ -27,7 +27,6 @@ except Exception as e:
 print("Loading Coqui TTS model (glow-tts)...")
 tts = None
 try:
-    # This will download the model on the first run
     tts = TTS(model_name="tts_models/en/ljspeech/glow-tts", progress_bar=True, gpu=False)
     print("Coqui TTS model loaded successfully.")
 except Exception as e:
@@ -37,7 +36,6 @@ except Exception as e:
 # Gemini API
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GEMINI_API_KEY:
-    # Fallback for your specific key name
     GEMINI_API_KEY = os.getenv("GENAI_API_KEY_1") 
 if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY not found in .env file")
@@ -97,7 +95,7 @@ def get_ai_feedback(transcript: str):
         print(f"Error getting feedback from Gemini: {e}")
         return None
 
-# --- API Endpoint ---
+# --- API Endpoints ---
 @app.post("/api/transcribe")
 async def transcribe_audio(audio_file: UploadFile = File(...)):
     if whisper_model is None or tts is None:
@@ -119,21 +117,19 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
             return JSONResponse(status_code=500, content={"error": "Failed to get AI feedback."})
 
         print("Generating AI speech with Coqui TTS...")
-        temp_output_path = os.path.join(temp_audio_dir, "ai_response.wav")
+        # **NEW**: Create a unique filename for the AI response
+        unique_id = uuid.uuid4()
+        temp_output_filename = f"ai_response_{unique_id}.wav"
+        temp_output_path = os.path.join(temp_audio_dir, temp_output_filename)
         
-        # Synthesize speech using the specified glow-tts model
         tts.tts_to_file(text=ai_feedback["conversationalReply"], file_path=temp_output_path)
         
-        with open(temp_output_path, "rb") as f:
-            audio_data = f.read()
-            audio_base64 = base64.b64encode(audio_data).decode('utf-8')
-
         return JSONResponse(
             status_code=200,
             content={
                 "transcript": transcript_with_pauses,
                 "feedback": ai_feedback,
-                "audio": audio_base64
+                "audio_filename": temp_output_filename  # **NEW**: Send the filename instead of data
             }
         )
     except Exception as e:
@@ -141,13 +137,19 @@ async def transcribe_audio(audio_file: UploadFile = File(...)):
         return JSONResponse(status_code=500, content={"error": "Failed to process audio."})
     finally:
         if os.path.exists(temp_input_path):
-            #os.remove(temp_input_path)
-            pass
-        if 'temp_output_path' in locals() and os.path.exists(temp_output_path):
-            #os.remove(temp_output_path)
-            pass
+            os.remove(temp_input_path)
+        # We will not delete the AI audio file here, as the frontend needs to fetch it.
+        # A proper production app would have a cleanup job for old files.
 
-# --- Serve Frontend (No changes here) ---
+# **NEW**: This endpoint serves the generated audio files
+@app.get("/api/audio/{filename}")
+async def get_audio_file(filename: str):
+    file_path = os.path.join(temp_audio_dir, filename)
+    if os.path.exists(file_path):
+        return FileResponse(file_path, media_type="audio/wav")
+    return JSONResponse(status_code=404, content={"error": "File not found"})
+
+# --- Serve Frontend ---
 @app.get("/")
 def serve_index():
     return FileResponse(os.path.join(frontend_dir, "index.html"))
