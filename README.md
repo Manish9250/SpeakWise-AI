@@ -1,116 +1,151 @@
 # SpeakWise AI 🗣️✨
 
-SpeakWise AI is an intelligent, AI-powered conversation partner designed to help you improve your English speaking skills. Get real-time, multi-layered feedback on your pronunciation, grammar, and phrasing in a natural, conversational setting.
+SpeakWise AI is an intelligent, AI-powered conversation partner designed to help you improve your English speaking skills. Get real-time, multi-layered feedback on your pronunciation, grammar, and phrasing in a natural, conversational setting. This project is built with a focus on being fully self-hosted, private, and free to run.
 
 ---
 
-### [Gif of SpeakWise AI in action]
-
-*(A short GIF demonstrating the app's workflow would be perfect here!)*
-
 ## 🚀 Introduction
 
-Practicing a new language can be challenging, especially without a conversation partner. SpeakWise AI solves this by providing a safe and insightful space to speak English freely. Unlike standard transcription tools that autocorrect you, SpeakWise AI captures exactly what you say and provides three layers of feedback from a powerful AI tutor: a natural conversational reply, a more fluent way to phrase your sentence, and a detailed grammatical analysis.
+Practicing a new language can be challenging, especially without a conversation partner. SpeakWise AI solves this by providing a safe and insightful space to speak English freely. Unlike standard tools, SpeakWise AI captures the nuances of your speech—including pauses and hesitations—and provides three layers of feedback from a powerful AI tutor: a natural conversational reply, a more fluent way to phrase your sentence, and a detailed grammatical analysis, all delivered with a high-quality, natural-sounding AI voice.
 
 ## ⭐ Key Features
 
-* **🎙️ Real-time Transcription:** Captures your speech without any auto-correction, showing you exactly what you said.
-* **🧠 Tri-Mode AI Feedback:** For every sentence you speak, you get:
-    1.  **A Conversational Reply:** The AI responds naturally to keep the conversation flowing.
-    2.  **A Phrase Suggestion:** Offers a more natural or grammatically correct version of your sentence.
-    3.  **Detailed Analysis:** Provides a clear, bulleted breakdown of your grammatical errors.
-* **🔊 Text-to-Speech:** The AI's conversational replies are spoken back to you, creating a realistic listening and speaking loop.
-* **📚 Persistent Chat History:** All your conversations are saved locally in your browser, allowing you to track your progress over time.
+* **🎙️ High-Fidelity Audio Capture:** Records your voice using the browser's MediaRecorder API, preserving the quality of your speech.
+
+* **🧠 Self-Hosted Transcription with Pause Detection:** Uses the powerful, self-hosted Whisper model to transcribe your speech, accurately representing pauses and hesitations.
+
+* **🤖 Advanced AI Feedback:** Leverages the Gemini API to provide three distinct layers of feedback for every utterance:
+
+    1. **A natural, conversational reply**.
+
+    2. **A suggested rephrasing for better fluency.**
+
+    3. **A detailed analysis of grammatical errors.**
+
+* **🔊 Natural AI Voice:** Generates the AI's spoken response using a self-hosted, high-quality Coqui TTS model, providing a realistic and engaging listening experience.
+
+* **🔒 Private & Free:** All AI processing (except for the text analysis) runs locally on your own server. No audio ever leaves your machine, and there are no recurring costs.
+
+* **🌑 Sleek Dark-Mode UI:** A clean, minimalist, and modern user interface designed for a focused learning experience.
 
 ## 🛠️ Technology Stack
 
-This project combines a modern web frontend with a powerful Python backend.
+This project combines a modern web frontend with a powerful, self-hosted Python backend.
 
-* **Backend:** **FastAPI**, **Python 3.9+**, **Uvicorn**, **Google Gemini API**
-* **Frontend:** **HTML5**, **CSS3**, **Vanilla JavaScript**
-* **APIs:** **Web Speech API** (for Speech-to-Text) & **Speech Synthesis API** (for Text-to-Speech)
-* **Storage:** **Browser `localStorage`** for saving chat history.
+* **Backend:** **FastAPI**, **Python 3.12**, **Uvicorn**
+
+* **AI Models (Self-Hosted):**
+
+    * **Speech-to-Text:** `faster-whisper`
+
+    * **Text-to-Speech:** `Coqui TTS`
+
+* **AI Analysis (API):** **Google Gemini API**
+
+* **Frontend:** **HTML5**, **Tailwind CSS**, **Vanilla JavaScript**
+
+* **APIs:** **Web `MediaRecorder` API (for Audio Capture)**
 
 ## ⚙️ System Architecture
 
-The application works through a simple but powerful client-server architecture:
+1. **Client (Browser):** The `MediaRecorder` API captures user audio and uploads the file to the backend.
 
-1.  **Client (Browser):** The Web Speech API captures user audio and transcribes it to raw text.
-2.  **API Request:** The frontend sends this text to the FastAPI backend.
-3.  **Backend (FastAPI):** The server receives the text, wraps it in a "smart prompt," and sends it to the Gemini API.
-4.  **AI Processing:** Gemini processes the prompt and returns a structured JSON object with the three layers of feedback.
-5.  **API Response:** The FastAPI server forwards this structured JSON back to the client.
-6.  **Client (Browser):** JavaScript parses the JSON, displays the feedback in the chat UI, and uses the Speech Synthesis API to speak the conversational reply.
+2. **Backend (FastAPI):**
 
+    * Receives the audio file.
+    
+    * Uses the local Whisper model to transcribe the audio, calculatin word-level timestamps to detect pauses.
+    
+    * Sends the pause-aware text transcript to the Gemini API for analysis.
+    
+    * Receives the structured JSON feedback (reply, suggestion, analysis) from Gemini.
+    
+    * Uses the local Coqui TTS model to convert the conversational reply text into a high-quality .wav file.
+    
+    * Saves the audio file and sends the filename back to the client along with the Gemini feedback.
 
+3. **Client (Browser):**
+
+    * Receives the JSON response.
+    
+    * Displays the user's transcript and the AI's detailed feedback.
+    
+    * Fetches and plays the generated AI audio file from a separate backend endpoint.
 
 ## 🔧 Setup and Local Installation
 
 To run this project on your local machine, follow these steps:
 
-**1. Clone the Repository**
+**Prerequisites:**
+
+* **Python 3.12:** This project requires Python 3.12. You can check your version with `python --version`.
+
+* **Git:** For cloning the repository.
+
+1. **Clone the Repository**
+
 ```bash
 git clone [https://github.com/Manish9250/SpeakWise-AI.git](https://github.com/Manish9250/SpeakWise-AI.git)
 cd SpeakWise-AI
 ```
-**2. Set Up the Backend**
 
-- Create a Python virtual environment:
-  
+2. **Set Up the Backend**
+
+* Navigate to the backend directory:
+
 ```bash
-python -m venv venv
+cd backend
+```
+
+* Create and activate a Python 3.12 virtual environment:
+
+```bash
+python3.10 -m venv venv
 source venv/bin/activate  # On Windows, use `venv\Scripts\activate`
 ```
 
-- Install the required dependencies:
+* Install the required dependencies:
 ```bash
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
-
-- Create a .env file in the root directory and add your Gemini API key:
+* Create a .env file in the backend directory and add your Gemini API key:
 ```bash
 GEMINI_API_KEY="YOUR_GEMINI_API_KEY_HERE"
 ```
-- Run the FastAPI server:
-
+* Run the FastAPI server:
 ```bash
 uvicorn main:app --reload
 ```
-The backend will now be running at http://127.0.0.1:8000.
 
-**3. Launch the Frontend**
+**Note:** The first time you run the server, it will automatically download the Whisper and Coqui TTS models. This is a one-time download and may take several minutes and a few gigabytes of disk space.
 
-- Navigate to the frontend directory.
+3. **Launch the Frontend**
 
-- Open the index.html file in your web browser (Google Chrome is recommended for best Web Speech API compatibility).
+* While the backend server is running, open a web browser and navigate to:
 
-## 💬 How to Use
-1. Open index.html in your browser.
+```bash
+[http://127.0.0.1:8000](http://127.0.0.1:8000)
+```
 
-2. Click the "Start Listening" button.
+## 🚀 What's Next?
 
-3. Allow the browser to access your microphone.
+This project is a solid foundation. Here are some ideas for future improvements:
 
-4. Speak a sentence in English.
+* **Chat History:** Implement `localStorage` on the frontend to save and load conversations.
 
-5. Click "Stop Listening."
+* **Voice Selection:** Allow the user to choose from different pre-trained Coqui TTS voices.
 
-6. Watch as your raw transcription and the AI's detailed feedback appear in the chat!
+* **Real-time Streaming:** Re-architect the backend and frontend to use WebSockets for real-time, streaming transcription and TTS.
+
+* **UI Enhancements:** Add animations, loading indicators, and a more dynamic layout.
 
 ## 🙌 How to Contribute
-Contributions are welcome! If you have ideas for new features or improvements, please feel free to:
 
-1. Fork the repository.
-
-2. Create a new branch (git checkout -b feature/YourAmazingFeature).
-
-3. Commit your changes (git commit -m 'Add some YourAmazingFeature').
-
-4. Push to the branch (git push origin feature/YourAmazingFeature).
-
-5. Open a Pull Request.
+Contributions are welcome! If you have ideas for new features or improvements, please feel free to open an issue or submit a pull request.
 
 ## 📄 License
+
 This project is licensed under the MIT License. See the LICENSE file for more details.
 
 Created with ❤️ by [Manish Kumar](https://github.com/Manish9250)
